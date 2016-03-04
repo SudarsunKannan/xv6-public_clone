@@ -1,0 +1,356 @@
+diff '--exclude=.git' -r -u --new-file xv6-public/defs.h xv6-public_clone/defs.h
+--- xv6-public/defs.h	2016-03-04 10:46:02.688984435 -0500
++++ xv6-public_clone/defs.h	2016-03-04 03:31:34.784205962 -0500
+@@ -118,6 +118,7 @@
+ int             wait(void);
+ void            wakeup(void*);
+ void            yield(void);
++int             clone(void *, int);
+ 
+ // swtch.S
+ void            swtch(struct context**, struct context*);
+diff '--exclude=.git' -r -u --new-file xv6-public/Makefile xv6-public_clone/Makefile
+--- xv6-public/Makefile	2016-03-04 10:46:02.724984436 -0500
++++ xv6-public_clone/Makefile	2016-03-04 03:31:34.784205962 -0500
+@@ -134,7 +134,7 @@
+ vectors.S: vectors.pl
+ 	perl vectors.pl > vectors.S
+ 
+-ULIB = ulib.o usys.o printf.o umalloc.o
++ULIB = ulib.o usys.o printf.o umalloc.o threadlib.o
+ 
+ _%: %.o $(ULIB)
+ 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+@@ -172,6 +172,7 @@
+ 	_usertests\
+ 	_wc\
+ 	_zombie\
++	_threadtest\
+ 
+ fs.img: mkfs README $(UPROGS)
+ 	./mkfs fs.img README $(UPROGS)
+@@ -241,7 +242,7 @@
+ EXTRA=\
+ 	mkfs.c ulib.c user.h cat.c echo.c forktest.c grep.c kill.c\
+ 	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
+-	printf.c umalloc.c\
++	printf.c umalloc.c sysoverhead.c sbrktest.c\
+ 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\
+ 	.gdbinit.tmpl gdbutil\
+ 
+diff '--exclude=.git' -r -u --new-file xv6-public/proc.c xv6-public_clone/proc.c
+--- xv6-public/proc.c	2016-03-04 10:46:02.984984443 -0500
++++ xv6-public_clone/proc.c	2016-03-04 10:44:01.476980815 -0500
+@@ -232,7 +232,8 @@
+         pid = p->pid;
+         kfree(p->kstack);
+         p->kstack = 0;
+-        freevm(p->pgdir);
++	    if(p->pgdir != proc->pgdir)	
++	     freevm(p->pgdir);
+         p->state = UNUSED;
+         p->pid = 0;
+         p->parent = 0;
+@@ -464,3 +465,53 @@
+     cprintf("\n");
+   }
+ }
++
++// Creates a clone of the parent process by taking in a newly allocated stack
++// and copies the contents of the parents stack to the clone's new stack. The
++// new clone also uses the same pgdir as the parent. 
++int
++clone(void *stack, int size)
++{
++  int i, pid;
++  struct proc *np;
++
++  // Allocate clone process.
++  if((np = allocproc()) == 0)
++     return -1;
++
++  //All clone proc struct values must be set to parent
++  //Including pgdir
++  np->pgdir = proc->pgdir;
++  np->sz = proc->sz;
++  np->parent = proc;
++  *np->tf = *proc->tf;
++  // Clear %eax so that fork returns 0 in the child.
++  np->tf->eax = 0;
++
++  //Calculate parent stack size
++  //YOUR CODE HERE
++
++
++  //Set the threads stack and base pointer 
++  //YOUR CODE HERE
++
++
++  //Copy the parent's stack to child.
++  //YOUR CODE HERE
++
++
++  //Important to set the clone to RUNNABLE  
++  np->state = RUNNABLE;
++  //Copy all the file descriptors of the parent
++  //NOFILE contains the number of files
++  for(i = 0; i < NOFILE; i++)
++    if(proc->ofile[i])
++      np->ofile[i] = filedup(proc->ofile[i]);
++  np->cwd = idup(proc->cwd);
++
++  safestrcpy(np->name, proc->name, sizeof(proc->name));
++ 
++  pid = np->pid;
++
++  return pid;
++}
+diff '--exclude=.git' -r -u --new-file xv6-public/proc.h xv6-public_clone/proc.h
+--- xv6-public/proc.h	2016-03-04 10:46:02.708984435 -0500
++++ xv6-public_clone/proc.h	2016-03-04 03:31:34.784205962 -0500
+@@ -66,6 +66,7 @@
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++  void *stack;	
+ };
+ 
+ // Process memory is laid out contiguously, low addresses first:
+diff '--exclude=.git' -r -u --new-file xv6-public/syscall.c xv6-public_clone/syscall.c
+--- xv6-public/syscall.c	2016-03-04 10:46:02.696984435 -0500
++++ xv6-public_clone/syscall.c	2016-03-04 03:31:34.784205962 -0500
+@@ -98,6 +98,7 @@
+ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
++extern int sys_clone(void);
+ 
+ static int (*syscalls[])(void) = {
+ [SYS_fork]    sys_fork,
+@@ -121,6 +122,7 @@
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_clone]   sys_clone,
+ };
+ 
+ void
+diff '--exclude=.git' -r -u --new-file xv6-public/syscall.h xv6-public_clone/syscall.h
+--- xv6-public/syscall.h	2016-03-04 10:46:02.704984435 -0500
++++ xv6-public_clone/syscall.h	2016-03-04 03:31:34.784205962 -0500
+@@ -20,3 +20,4 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_clone  22
+diff '--exclude=.git' -r -u --new-file xv6-public/sysproc.c xv6-public_clone/sysproc.c
+--- xv6-public/sysproc.c	2016-03-04 10:46:02.692984435 -0500
++++ xv6-public_clone/sysproc.c	2016-03-04 03:31:34.784205962 -0500
+@@ -14,6 +14,17 @@
+ }
+ 
+ int
++sys_clone(void) {
++  void *stack;
++  int size;
++
++  if (argint(1,&size) < 0 || argptr(0,(char **) &stack,size) < 0)
++    return -1;
++
++  return clone(stack,size);
++}
++
++int
+ sys_exit(void)
+ {
+   exit();
+diff '--exclude=.git' -r -u --new-file xv6-public/threadlib.c xv6-public_clone/threadlib.c
+--- xv6-public/threadlib.c	1969-12-31 19:00:00.000000000 -0500
++++ xv6-public_clone/threadlib.c	2016-03-04 03:33:03.836208622 -0500
+@@ -0,0 +1,62 @@
++#include "types.h"
++#include "mmu.h"
++#include "stat.h"
++#include "user.h"
++#include "param.h"
++#include "fs.h"
++#include "proc.h"
++#include "x86.h"
++
++#define ACQUIRE 1
++#define RELEASE 0
++
++// Initializes a spinlock
++void lock_init(lock_t * lock){
++  //YOUR CODE HERE
++}
++
++// Acquire spinlock 
++void lock_acquire(lock_t * lock)
++{
++  //Keep spinning until lock aquired  	
++  //YOUR CODE HERE
++
++}
++
++// Release spinlock
++void lock_release(lock_t * lock)
++{
++  //YOUR CODE HERE
++
++}
++
++//Thread creation function which calls clone.
++// Allocate a new thread stack and pass it to clone with size
++int thread_create(void *(*func)(void*),void *arg){
++
++  int ret;
++  void *stack = malloc(PGSIZE);  
++
++  if(!stack)
++    return -1;
++
++  ret = clone(stack, PGSIZE);
++  if (ret == 0)  {
++    //Call the thread function here
++    (*func)(arg);
++    //Free the stack after execution	
++    free(stack);
++    //Exit the thread
++    exit();
++  }
++  else {
++    return ret;
++  }
++}
++
++//When called by parent, waits for child
++//to finish or return
++int thread_join(void)
++{
++  return wait();
++}
+diff '--exclude=.git' -r -u --new-file xv6-public/threadtest.c xv6-public_clone/threadtest.c
+--- xv6-public/threadtest.c	1969-12-31 19:00:00.000000000 -0500
++++ xv6-public_clone/threadtest.c	2016-03-04 10:44:46.164982149 -0500
+@@ -0,0 +1,86 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fs.h"
++#include "param.h"
++
++lock_t *lock;
++int counter;
++
++//Acquire lock and increment counter 
++//by loop count
++void *inc_counter(void * a)
++{ 
++  int i;   
++  for(i = 0; i < (int)a; i++) { 
++    //Acquire thread lock here
++    //YOUR CODE HERE  
++
++    counter++;  
++    //Release thread lock here
++    //YOUR CODE HERE
++  }
++  return 0;
++}
++
++//Check the counter value with output
++int check(int numThrds, int numloops, int counter){
++
++  //Check if result is correct
++  if(counter != numThrds * numloops){
++    return -1;
++  }
++  return 0;
++}
++
++int test(int numThrds, int numloops)
++{
++  int cnt=0;
++
++  if (numThrds > NPROC - 3){
++    printf(2, "Error: Max threads %d)\n", 61);
++    exit();
++  }
++  counter = 0;
++  lock = malloc(sizeof(lock_t));
++
++  //Initialize the lock
++  lock_init(lock);
++  
++  for (cnt = 0; cnt < numThrds; cnt++)
++    //Thread will increament the counter by numloops
++    if (thread_create(inc_counter,(void *)numloops) == -1){
++      printf(2, "Error: thread_create failed");
++      exit();
++    }
++		//Wait for all threads to get back
++  for(; cnt > 0; cnt--)
++    thread_join(); 
++
++  free(lock);
++  //For debugging
++  //printf(1,"Counter: %d\n", counter);
++  return check(numThrds, numloops, counter);
++}
++
++int main(void) {
++
++  int numThrds=1;
++  int numloops=1;
++
++  if(test(numThrds, numloops)) {
++     printf(1, "TEST 1 failed \n");
++  }else{
++    printf(1, "TEST 1 succeeded \n");
++  }
++
++  numThrds=61;
++  numloops=50;
++
++  if(test(numThrds, numloops)) {
++     printf(1, "TEST 2 failed \n");
++  }else{
++    printf(1, "TEST 2 succeeded \n");
++  }
++  exit();	
++}
+diff '--exclude=.git' -r -u --new-file xv6-public/user.h xv6-public_clone/user.h
+--- xv6-public/user.h	2016-03-04 10:46:02.692984435 -0500
++++ xv6-public_clone/user.h	2016-03-04 03:31:34.788205962 -0500
+@@ -23,6 +23,7 @@
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int clone(void* stack, int size);
+ 
+ // ulib.c
+ int stat(char*, struct stat*);
+@@ -37,3 +38,14 @@
+ void* malloc(uint);
+ void free(void*);
+ int atoi(const char*);
++
++// threadlib.c
++int thread_create(void *(*start_routine)(void*), void *arg);
++int thread_join(void);
++typedef struct _lock_t{
++  uint flag;
++}lock_t;
++
++void lock_init(lock_t *);
++void lock_acquire(lock_t *);
++void lock_release(lock_t *);
+diff '--exclude=.git' -r -u --new-file xv6-public/usys.S xv6-public_clone/usys.S
+--- xv6-public/usys.S	2016-03-04 10:46:02.684984435 -0500
++++ xv6-public_clone/usys.S	2016-03-04 03:31:34.788205962 -0500
+@@ -29,3 +29,4 @@
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++SYSCALL(clone)
