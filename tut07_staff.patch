@@ -46,8 +46,8 @@ diff -r -u --new-file '--exclude=.git' xv6-public/proc.c xv6-public_clone/proc.c
          kfree(p->kstack);
          p->kstack = 0;
 -        freevm(p->pgdir);
-+		 if(p->pgdir != proc->pgdir)	
-+		   freevm(p->pgdir);
++	 if(p->pgdir != proc->pgdir)	
++	   freevm(p->pgdir);
          p->state = UNUSED;
          p->pid = 0;
          p->parent = 0;
@@ -98,7 +98,7 @@ diff -r -u --new-file '--exclude=.git' xv6-public/proc.c xv6-public_clone/proc.c
 +  //Copy all the file descriptors of the parent
 +  //NOFILE contains the number of files
 +  for(i = 0; i < NOFILE; i++)
-+		if(proc->ofile[i])
++    if(proc->ofile[i])
 +      np->ofile[i] = filedup(proc->ofile[i]);
 +  np->cwd = idup(proc->cwd);
 +
